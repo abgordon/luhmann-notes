@@ -54,23 +54,14 @@ TODO: going to try this with a docker db initally. Need a way to persist between
     maybe I can just save a sql file and run a sql binary when I need to
 '''
 
-# class Note:
-
-#     # if parent_id == None, this is a top-level idea
-#     def __init__(self, id, text, parent_id=None):
-#         self.id = id
-#         self.text = text
-#         self.parent_id = parent_id
-
-#     def display():
-#         print('''
-# note: {}
-# parent: {}
-
-# {}
-        
-#         '''.format(self.id, self.parent_id, self.text)
-        # pretty print a note
+# idk if this is useful
+class Note:
+    # if parent_id == None, this is a top-level idea
+    def __init__(self, id, text, parent_id=None, siblings=[]):
+        self.id = id
+        self.text = text
+        self.parent_id = parent_id
+        self.siblings = siblings
 
 
 # global DB connection
@@ -85,6 +76,7 @@ def create_schema():
     id int NOT NULL,
     title varchar(255),
     text varchar(255),
+    siblings varchar(255),
     PRIMARY KEY(id)
     )
     ''')
@@ -92,9 +84,10 @@ def create_schema():
     cur.execute('''
     CREATE TABLE sub_idea (
     id int NOT NULL,
-    parent_id int NOT NULL,
     title varchar(255),
     text varchar(255),
+    siblings varchar(255),
+    parent_id int NOT NULL,
     PRIMARY KEY(id),
     FOREIGN KEY(parent_id) REFERENCES idea(id)
     )
@@ -117,14 +110,23 @@ def get_next_id(table_name):
 
     return val[0] + 1
 
-def insert_idea(id, title, body):
-    cmd = 'INSERT INTO idea (id,title,text) VALUES ({},\'{}\',\'{}\');'.format(id, title, body)
+# "siblings" dumps a python list as a string into the column so we can turn it into python later
+# this is "bad sql" and will almost certainly bite me in the ass later 
+# There has to be a better way to do this 
+def insert_idea(id, title, body, siblings):
+    cmd = 'INSERT INTO idea (id,title,text, siblings) VALUES ({},\'{}\',\'{}\',\'{}\');'.format(id, title, body, siblings)
     cur = conn.cursor()
     cur.execute(cmd)
     conn.commit()
 
-def find_idea(input):
-    cmd = 'SELECT * FROM idea WHERE title LIKE \'%{}%\';'.format(input)
+def insert_sub_idea(id, parent_id, title, body, siblings):
+    cmd = 'INSERT INTO sub_idea (id,parent_id,title,text,siblings) VALUES ({},\'{}\',\'{}\',\'{}\',\'{}\');'.format(id, parent_id, title, body, siblings)
+    cur = conn.cursor()
+    cur.execute(cmd)
+    conn.commit()
+
+def find_idea(table, input):
+    cmd = 'SELECT * FROM {} WHERE title LIKE \'%{}%\';'.format(table, input)
     cur = conn.cursor()
 
     cur.execute(cmd)
@@ -182,20 +184,50 @@ if cmd == "create-schema":
 elif cmd == "new":
     # get next id to create and then open prompt
     id = get_next_id("idea")
-
     title = input("Title: ")
-    text = input("Body: ")
+    text = open_vim("")
 
-    insert_idea(id, title, text)
+    # search for siblings
+    more_siblings = ""
+    siblings = []
+    while more_siblings != 'n':
+        more_siblings = input("Add a reference to a sibling? (y/n) ")
+        if more_siblings == 'y':
+            search = input("Search for a term to find a sibling topic: ")
+            vals = find_idea("idea", search)
+            if len(vals) == 0:
+                print('no ideas found for search term "{}", try a different search.'.format(search))
+                continue
+
+            for i,val in enumerate(vals):
+                print("{}: {}".format(i, val))
+            selection = input("select index: ")
+
+            selected = vals[int(selection)]
+            print('Added topic "{}" as a sibling topic.'.format(selected[1]))
+            siblings.append(selected[0])
+        elif more_siblings == 'n':
+            break
+        else:
+            print('Enter "y" or "n", you imbecile')
+
+
+    insert_idea(id, title, text, siblings)
 
 
 elif cmd == "edit":
+    table = ""
+    while table != "sub_idea" and table != "idea":
+        table = input('Update child or parent table? Enter "idea" or "sub_idea": ')
+
+    # TODO: switch to toggle between sub-idea table or parents
+    # TODO-TODO: refactor it so it's all one big table and relations can be infinitely nested
     # request the parent idea; use "like" to search ideas
     # then ask to edit the name, and open a nifty text editor
     # for the text body
     # everything is mutable
     search = input("Input idea you want to edit: ")
-    vals = find_idea(search)
+    vals = find_idea(table, search)
     if len(vals) == 0:
         print('no ideas found for search term "{}", exiting...'.format(search))
         sys.exit(1)
@@ -205,7 +237,7 @@ elif cmd == "edit":
     selection = input("select index: ")
 
     selected = vals[int(selection)]
-
+    print(selected)
 
     edit_title = ""
     while edit_title != 'y' and edit_title != 'n':
@@ -213,16 +245,73 @@ elif cmd == "edit":
     
     if edit_title == 'y':
         new_title = input("Current title: {}. Enter new title: ".format(selected[1]))
-        update_field("idea", "title", new_title, selected[0])
+        update_field(table, "title", new_title, selected[0])
     
-    new_text = open_vim(selected[2])
-    update_field("idea", "text", new_text, selected[0])
+    edit_body = ""
+    while edit_body != 'y' and edit_body != 'n':
+        edit_body = input("Edit body? (y/n) ")
+    
+    if edit_body == 'y':
+        new_text = open_vim(selected[2])
+        update_field(table, "text", new_text, selected[0])
+
+    edit_siblings = ""
+    while edit_siblings != 'y' and edit_siblings != 'n':
+        edit_siblings = input("Edit siblings? (y/n) ")
+    
+    if edit_siblings == 'y':
+        # write a syntactically correct python list or woe fucking betide you my friend
+        # manual DB updates lurk here. See comment on this method declaration
+        new_siblings = open_vim(selected[3])
+        update_field(table, "siblings", new_siblings, selected[0])
+
 
     
 elif cmd == "new-sub":
-    print("todo")
-    # request the parent idea; use "like" to search ideas
-    # then get the next sub-idea-id and do the same thing as new
+    search = input("Input idea to select as a parent: ")
+    vals = find_idea("idea", search)
+    if len(vals) == 0:
+        print('no ideas found for search term "{}", exiting...'.format(search))
+        sys.exit(1)
+
+    for i,val in enumerate(vals):
+        print("{}: {}".format(i, val))
+    selection = input("select index: ")
+
+    selected = vals[int(selection)]
+    parent_id = selected[0]
+
+    id = get_next_id("sub_idea")
+
+    title = input("Title: ")
+    text = open_vim("")
+
+    # search for siblings
+    more_siblings = ""
+    siblings = []
+    while more_siblings != 'n':
+        more_siblings = input("Add a reference to a sibling? (y/n) ")
+        if more_siblings == 'y':
+            search = input("Search for a term to find a sibling topic: ")
+            vals = find_idea(table, search)
+            if len(vals) == 0:
+                print('no ideas found for search term "{}", try a different search.'.format(search))
+                continue
+
+            for i,val in enumerate(vals):
+                print("{}: {}".format(i, val))
+            selection = input("select index: ")
+
+            selected = vals[int(selection)]
+            print('Added topic "{}" as a sibling topic.'.format(selected[1]))
+            siblings.append(selected[0])
+        elif more_siblings == 'n':
+            break
+        else:
+            print('Enter "y" or "n", you imbecile')
+
+
+    insert_sub_idea(id, parent_id, title, text, siblings)
 else:
     print('command "{}" not recognized; exiting.'.format(cmd))
 
