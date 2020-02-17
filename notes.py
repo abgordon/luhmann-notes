@@ -67,7 +67,6 @@ class Note:
 # global DB connection
 conn = psycopg2.connect(host="localhost",database="luhman", user="postgres", password="luhman")
 
-# we will probably need to alter the size of "text" later 
 def create_schema():
     # connect to DB
     cur = conn.cursor()
@@ -75,7 +74,7 @@ def create_schema():
     CREATE TABLE idea (
     id int NOT NULL,
     title varchar(255),
-    text varchar(255),
+    text text,
     siblings varchar(255),
     PRIMARY KEY(id)
     )
@@ -85,7 +84,7 @@ def create_schema():
     CREATE TABLE sub_idea (
     id int NOT NULL,
     title varchar(255),
-    text varchar(255),
+    text text,
     siblings varchar(255),
     parent_id int NOT NULL,
     PRIMARY KEY(id),
@@ -96,12 +95,14 @@ def create_schema():
     conn.commit()
     conn.close()
 
+# note ids increase sequentially, forever. Could use guids but luhmann used 
+# a sequential numbering system so it's in the spirit of the card scheme
 def get_next_id(table_name):
     cmd = 'SELECT id FROM {} ORDER BY id DESC LIMIT 1;'.format(table_name)
     cur = conn.cursor()
     cur.execute(cmd)
 
-    # just pop off the top of the list
+    # just pop off the top of the list. sorted by query
     val = cur.fetchone()
 
     conn.commit()
@@ -140,6 +141,7 @@ def update_field(table, field, new, id):
     conn.commit()
 
 # from https://stackoverflow.com/questions/6309587/call-up-an-editor-vim-from-a-python-script
+# almost _exactly_ what I needed, which is nice 
 def open_vim(text):
 
     EDITOR = os.environ.get('EDITOR','vim') #that easy!
@@ -182,7 +184,6 @@ cmd = sys.argv[1]
 if cmd == "create-schema":
     create_schema()
 elif cmd == "new":
-    # get next id to create and then open prompt
     id = get_next_id("idea")
     title = input("Title: ")
     text = open_vim("")
