@@ -23,11 +23,15 @@ sample project to begin note-taking:
     https://www.quantamagazine.org/the-map-of-mathematics-20200213/
     https://en.wikipedia.org/wiki/Riemann_zeta_function
 
+whats up with this new trend of animations-while-scrolling?
+https://www.bbc.co.uk/news/extra/CLQYZENMBI/amazon-data
+
 
 commands:
 insert
 edit
 create-schema
+delete
 
 note attributes:
 title
@@ -38,11 +42,11 @@ id
 - id has _no importance_ other than having the quality of being a top-level category and is the
   parent of a series of sub-ids. It is not an organizer of any kind.
 - ideas are thematically unlimited and can be infinitely extended in any direction 
-branch
-- references a foreign key parent_ids to affiliate it with a parent
-- is a instance of a parent idea (ie, if "genocide" is a parent topic, then "holocaust" would be the title of a sub id)
-id reference
+parents
+- references other ideas
 - a branch is a linked list of ideas that go off a parent topic
+siblings
+- the same implementation as parents, but semantically different
 
 goals:
 - a python script that can create notes
@@ -166,6 +170,8 @@ if len(sys.argv) == 1:
 
     new-sub
      - open the sub-idea command prompt
+    search
+     - find an idea
     ''')
 
 cmd = sys.argv[1]
@@ -293,6 +299,22 @@ elif cmd == "delete":
     selected = vals[int(selection)]
 
     delete_idea(selected[0])
+elif cmd == "search":
+    search = input("Search: ")
+    vals = find_idea(search)
+    if len(vals) == 0:
+        print('no ideas found for search term "{}", exiting...'.format(search))
+        sys.exit(1)
+
+    for i,val in enumerate(vals):
+        print("{}: {}".format(i, val[1]))
+    selection = input("select index: ")
+    topic = vals[int(selection)]
+    print("Topic:", topic[1])
+    print(topic[2])
+    # TODO: search the titles of topics and present them here
+    print("Parents:", topic[4])
+    print("Siblings:", topic[3])
 
 else:
     print('command "{}" not recognized; exiting.'.format(cmd))
