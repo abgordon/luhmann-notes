@@ -39,7 +39,7 @@ id
   parent of a series of sub-ids. It is not an organizer of any kind.
 - ideas are thematically unlimited and can be infinitely extended in any direction 
 branch
-- references a foreign key parent_id to affiliate it with a parent
+- references a foreign key parent_ids to affiliate it with a parent
 - is a instance of a parent idea (ie, if "genocide" is a parent topic, then "holocaust" would be the title of a sub id)
 id reference
 - a branch is a linked list of ideas that go off a parent topic
@@ -56,11 +56,11 @@ TODO: going to try this with a docker db initally. Need a way to persist between
 
 # idk if this is useful
 class Note:
-    # if parent_id == None, this is a top-level idea
-    def __init__(self, id, text, parent_id=None, siblings=[]):
+    # if parent_ids == None, this is a top-level idea
+    def __init__(self, id, text, parent_ids=None, siblings=[]):
         self.id = id
         self.text = text
-        self.parent_id = parent_id
+        self.parent_ids = parent_ids
         self.siblings = siblings
 
 
@@ -76,19 +76,8 @@ def create_schema():
     title varchar(255),
     text text,
     siblings varchar(255),
+    parent_ids varchar(255),
     PRIMARY KEY(id)
-    )
-    ''')
-    
-    cur.execute('''
-    CREATE TABLE sub_idea (
-    id int NOT NULL,
-    title varchar(255),
-    text text,
-    siblings varchar(255),
-    parent_id int NOT NULL,
-    PRIMARY KEY(id),
-    FOREIGN KEY(parent_id) REFERENCES idea(id)
     )
     ''')
     
@@ -97,8 +86,8 @@ def create_schema():
 
 # note ids increase sequentially, forever. Could use guids but luhmann used 
 # a sequential numbering system so it's in the spirit of the card scheme
-def get_next_id(table_name):
-    cmd = 'SELECT id FROM {} ORDER BY id DESC LIMIT 1;'.format(table_name)
+def get_next_id():
+    cmd = 'SELECT id FROM idea ORDER BY id DESC LIMIT 1;'
     cur = conn.cursor()
     cur.execute(cmd)
 
@@ -114,28 +103,28 @@ def get_next_id(table_name):
 # "siblings" dumps a python list as a string into the column so we can turn it into python later
 # this is "bad sql" and will almost certainly bite me in the ass later 
 # There has to be a better way to do this 
-def insert_idea(id, title, body, siblings):
-    cmd = 'INSERT INTO idea (id,title,text, siblings) VALUES ({},\'{}\',\'{}\',\'{}\');'.format(id, title, body, siblings)
+def insert_idea(id, title, body, siblings, parents):
+    cmd = 'INSERT INTO idea (id,title,text,siblings,parent_ids) VALUES ({},\'{}\',\'{}\',\'{}\',\'{}\');'.format(id, title, body, siblings, parents)
     cur = conn.cursor()
     cur.execute(cmd)
     conn.commit()
 
-def insert_sub_idea(id, parent_id, title, body, siblings):
-    cmd = 'INSERT INTO sub_idea (id,parent_id,title,text,siblings) VALUES ({},\'{}\',\'{}\',\'{}\',\'{}\');'.format(id, parent_id, title, body, siblings)
-    cur = conn.cursor()
-    cur.execute(cmd)
-    conn.commit()
-
-def find_idea(table, input):
-    cmd = 'SELECT * FROM {} WHERE title LIKE \'%{}%\';'.format(table, input)
+def find_idea(input):
+    cmd = 'SELECT * FROM idea WHERE title LIKE \'%{}%\';'.format(input)
     cur = conn.cursor()
 
     cur.execute(cmd)
     conn.commit()
     return cur.fetchall()
 
-def update_field(table, field, new, id):
-    cmd = 'UPDATE {} SET {}=\'{}\' WHERE id={};'.format(table, field, new, id)
+def update_field(field, new, id):
+    cmd = 'UPDATE idea SET {}=\'{}\' WHERE id={};'.format(field, new, id)
+    cur = conn.cursor()
+    cur.execute(cmd)
+    conn.commit()
+
+def delete_idea(id):
+    cmd = 'DELETE FROM idea WHERE id=\'{}\''.format(id)
     cur = conn.cursor()
     cur.execute(cmd)
     conn.commit()
@@ -184,9 +173,34 @@ cmd = sys.argv[1]
 if cmd == "create-schema":
     create_schema()
 elif cmd == "new":
-    id = get_next_id("idea")
+    id = get_next_id()
     title = input("Title: ")
     text = open_vim("")
+
+
+    # search for parents
+    more_parents = ""
+    parents = []
+    while more_parents != 'n':
+        more_parents = input("Add a reference to a parent? (y/n) ")
+        if more_parents == 'y':
+            search = input("Search for a term to find a parent topic: ")
+            vals = find_idea(search)
+            if len(vals) == 0:
+                print('no ideas found for search term "{}", try a different search.'.format(search))
+                continue
+
+            for i,val in enumerate(vals):
+                print("{}: {}".format(i, val))
+            selection = input("select index: ")
+
+            selected = vals[int(selection)]
+            print('Added topic "{}" as a parent topic.'.format(selected[1]))
+            parents.append(selected[0])
+        elif more_parents == 'n':
+            break
+        else:
+            print('Enter "y" or "n", you imbecile')
 
     # search for siblings
     more_siblings = ""
@@ -195,7 +209,7 @@ elif cmd == "new":
         more_siblings = input("Add a reference to a sibling? (y/n) ")
         if more_siblings == 'y':
             search = input("Search for a term to find a sibling topic: ")
-            vals = find_idea("idea", search)
+            vals = find_idea(search)
             if len(vals) == 0:
                 print('no ideas found for search term "{}", try a different search.'.format(search))
                 continue
@@ -213,22 +227,14 @@ elif cmd == "new":
             print('Enter "y" or "n", you imbecile')
 
 
-    insert_idea(id, title, text, siblings)
-
-
+    insert_idea(id, title, text, siblings, parents)
 elif cmd == "edit":
-    table = ""
-    while table != "sub_idea" and table != "idea":
-        table = input('Update child or parent table? Enter "idea" or "sub_idea": ')
-
-    # TODO: switch to toggle between sub-idea table or parents
-    # TODO-TODO: refactor it so it's all one big table and relations can be infinitely nested
     # request the parent idea; use "like" to search ideas
     # then ask to edit the name, and open a nifty text editor
     # for the text body
     # everything is mutable
     search = input("Input idea you want to edit: ")
-    vals = find_idea(table, search)
+    vals = find_idea(search)
     if len(vals) == 0:
         print('no ideas found for search term "{}", exiting...'.format(search))
         sys.exit(1)
@@ -238,7 +244,6 @@ elif cmd == "edit":
     selection = input("select index: ")
 
     selected = vals[int(selection)]
-    print(selected)
 
     edit_title = ""
     while edit_title != 'y' and edit_title != 'n':
@@ -246,7 +251,7 @@ elif cmd == "edit":
     
     if edit_title == 'y':
         new_title = input("Current title: {}. Enter new title: ".format(selected[1]))
-        update_field(table, "title", new_title, selected[0])
+        update_field("title", new_title, selected[0])
     
     edit_body = ""
     while edit_body != 'y' and edit_body != 'n':
@@ -254,23 +259,29 @@ elif cmd == "edit":
     
     if edit_body == 'y':
         new_text = open_vim(selected[2])
-        update_field(table, "text", new_text, selected[0])
+        update_field("text", new_text, selected[0])
+
+    edit_parents = ""
+    while edit_parents != 'y' and edit_parents != 'n':
+        edit_parents = input("Edit parents? (y/n) ")
+    
+    if edit_parents == 'y':
+        # write a syntactically correct python list or woe fucking betide you my friend
+        # manual DB updates lurk here. See comment on this method declaration
+        new_parents = open_vim(selected[4])
+        update_field("parents", new_parents, selected[0])
 
     edit_siblings = ""
     while edit_siblings != 'y' and edit_siblings != 'n':
         edit_siblings = input("Edit siblings? (y/n) ")
     
     if edit_siblings == 'y':
-        # write a syntactically correct python list or woe fucking betide you my friend
-        # manual DB updates lurk here. See comment on this method declaration
+        # same dire warnings as above
         new_siblings = open_vim(selected[3])
-        update_field(table, "siblings", new_siblings, selected[0])
-
-
-    
-elif cmd == "new-sub":
-    search = input("Input idea to select as a parent: ")
-    vals = find_idea("idea", search)
+        update_field("siblings", new_siblings, selected[0])
+elif cmd == "delete":
+    search = input("Input idea to delete: ")
+    vals = find_idea(search)
     if len(vals) == 0:
         print('no ideas found for search term "{}", exiting...'.format(search))
         sys.exit(1)
@@ -280,39 +291,9 @@ elif cmd == "new-sub":
     selection = input("select index: ")
 
     selected = vals[int(selection)]
-    parent_id = selected[0]
 
-    id = get_next_id("sub_idea")
+    delete_idea(selected[0])
 
-    title = input("Title: ")
-    text = open_vim("")
-
-    # search for siblings
-    more_siblings = ""
-    siblings = []
-    while more_siblings != 'n':
-        more_siblings = input("Add a reference to a sibling? (y/n) ")
-        if more_siblings == 'y':
-            search = input("Search for a term to find a sibling topic: ")
-            vals = find_idea(table, search)
-            if len(vals) == 0:
-                print('no ideas found for search term "{}", try a different search.'.format(search))
-                continue
-
-            for i,val in enumerate(vals):
-                print("{}: {}".format(i, val))
-            selection = input("select index: ")
-
-            selected = vals[int(selection)]
-            print('Added topic "{}" as a sibling topic.'.format(selected[1]))
-            siblings.append(selected[0])
-        elif more_siblings == 'n':
-            break
-        else:
-            print('Enter "y" or "n", you imbecile')
-
-
-    insert_sub_idea(id, parent_id, title, text, siblings)
 else:
     print('command "{}" not recognized; exiting.'.format(cmd))
 
