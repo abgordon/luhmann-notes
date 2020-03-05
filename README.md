@@ -10,5 +10,4 @@ Run a sql container and store extensible notes. TODO: This shouldn't run as a co
 ### works in progress
 
 - web server that provides an interface to the notes 
-- graphs! interactive ones! This will be a huge PITA because the web server will be in django and only d3 allows for a truly interactive browser experience! Otherwise, it will just be statically rendered graph images. But wait, d3 totally sucks because a) it's javascript b) the API is weird and clunky
-- rewrite the backend to use neo4j because of the above. Then I can just embed the browser panel into a page, probably, and see all the data that way
+- AWS server that persists everything and I can access from any computer, anywhere
